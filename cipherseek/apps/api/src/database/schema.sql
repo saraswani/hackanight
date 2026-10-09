@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  ciphertext TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  fileName TEXT NOT NULL,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS index_tokens (
+  token TEXT PRIMARY KEY,
+  document_ids TEXT NOT NULL, -- JSON array of document IDs
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+  details TEXT NOT NULL -- JSON
+);

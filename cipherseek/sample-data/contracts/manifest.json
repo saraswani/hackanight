@@ -1,0 +1,12 @@
+[
+  { "filename": "Vendor Service Agreement.md", "expectedKeywords": ["vendor", "payment", "renewal"] },
+  { "filename": "Software License Contract.md", "expectedKeywords": ["license", "software", "confidentiality"] },
+  { "filename": "Employment Agreement.md", "expectedKeywords": ["employment", "termination", "confidentiality"] },
+  { "filename": "Non-Disclosure Agreement.md", "expectedKeywords": ["confidentiality", "disclosure", "intellectual", "property"] },
+  { "filename": "Cloud Hosting Agreement.md", "expectedKeywords": ["cloud", "security", "availability"] },
+  { "filename": "Procurement Contract.md", "expectedKeywords": ["vendor", "payment", "delivery"] },
+  { "filename": "Data Processing Agreement.md", "expectedKeywords": ["privacy", "processing", "security"] },
+  { "filename": "Consulting Agreement.md", "expectedKeywords": ["consulting", "payment", "termination"] },
+  { "filename": "Maintenance Agreement.md", "expectedKeywords": ["renewal", "maintenance", "availability"] },
+  { "filename": "Partnership Agreement.md", "expectedKeywords": ["partnership", "intellectual", "property", "termination"] }
+]
