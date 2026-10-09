@@ -3,13 +3,27 @@ export function normalizeText(text: string): string {
   return text.normalize("NFKC").toLowerCase();
 }
 
-export function tokenizeText(text: string): string[] {
+export function tokenizeText(text: string, isQuery: boolean = false): string[] {
   const normalized = normalizeText(text);
   // Match words, numbers. Simple tokenization for the prototype.
   const words = normalized.match(/\b\w+\b/g) || [];
   
-  // Return unique tokens
-  return Array.from(new Set(words));
+  const tokens = new Set<string>();
+  
+  for (const word of words) {
+    if (!isQuery || word.length < 3) {
+      tokens.add(word); // Exact word match (indexed always, queried only if short)
+    }
+    
+    // Character N-grams (trigrams) for substring search support
+    if (word.length >= 3) {
+      for (let i = 0; i <= word.length - 3; i++) {
+        tokens.add(`3g:${word.substring(i, i + 3)}`);
+      }
+    }
+  }
+  
+  return Array.from(tokens);
 }
 
 // Inverted index builder in memory

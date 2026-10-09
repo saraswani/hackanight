@@ -31,7 +31,7 @@ export async function getDb() {
     run: async (query: string, ...params: any[]) => {
       // Very basic mock
       if (query.startsWith('INSERT INTO documents')) {
-        dbInstance.documents.push({ id: params[0], ciphertext: params[1], nonce: params[2], fileName: params[3], createdAt: new Date().toISOString() });
+        dbInstance.documents.push({ id: params[0], ciphertext: params[1], nonce: params[2], createdAt: new Date().toISOString() });
       } else if (query.startsWith('INSERT INTO index_tokens')) {
         dbInstance.index_tokens.push({ token: params[0], document_ids: params[1] });
       } else if (query.startsWith('UPDATE index_tokens')) {
@@ -49,7 +49,7 @@ export async function getDb() {
       return null;
     },
     all: async (query: string) => {
-      if (query.startsWith('SELECT id, fileName, createdAt FROM documents')) {
+      if (query.startsWith('SELECT id, createdAt FROM documents')) {
         return dbInstance.documents;
       } else if (query.startsWith('SELECT * FROM audit_events')) {
         return dbInstance.audit_events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 100);

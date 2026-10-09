@@ -4,7 +4,6 @@ export const uploadDocumentSchema = z.object({
   id: z.string(), // Opaque document ID
   ciphertext: z.string(), // Base64 encoded ciphertext
   nonce: z.string(), // Base64 encoded nonce
-  fileName: z.string(), // The original filename (for vault list - encrypted ideally, but requirements say "Searchable document list using client-held plaintext metadata only") Wait, the instructions say "Upload only encrypted payloads, opaque document IDs, approved metadata, and the protected search index to the server." If we want plaintext metadata in the vault, we might store it locally in the browser or upload it. The instructions say "Searchable document list using client-held plaintext metadata only". So maybe the server just stores opaque IDs and ciphertexts, and the client maps them. Let's just upload opaque ID, ciphertext, and nonce.
 });
 
 export const indexTokensSchema = z.record(
@@ -27,6 +26,7 @@ export const searchResponseSchema = z.object({
     z.string(), // token
     z.array(z.string()) // document IDs
   ),
+  finalIds: z.array(z.string()).optional(),
   durationMs: z.number(),
 });
 

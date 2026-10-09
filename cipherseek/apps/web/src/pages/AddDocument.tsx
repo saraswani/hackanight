@@ -81,7 +81,6 @@ export function AddDocument() {
           id: docId,
           ciphertext: encrypted.ciphertext,
           nonce: encrypted.nonce,
-          fileName: title,
         },
         indexUpdates,
       });

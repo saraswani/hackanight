@@ -71,7 +71,6 @@ export function DocumentVault() {
             id: doc.id,
             ciphertext: encrypted.ciphertext,
             nonce: encrypted.nonce,
-            fileName: doc.fileName, // Client-held plaintext metadata
           },
           // Only send the index updates once, or incrementally. 
           // Since the API uses UPDATE ... SET document_ids = ? we can send the whole thing on the first doc, 

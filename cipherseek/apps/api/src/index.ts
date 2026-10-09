@@ -40,8 +40,8 @@ app.post("/api/documents", async (req, res) => {
     await db.run("BEGIN TRANSACTION");
     try {
       await db.run(
-        "INSERT INTO documents (id, ciphertext, nonce, fileName) VALUES (?, ?, ?, ?)",
-        document.id, document.ciphertext, document.nonce, document.fileName
+        "INSERT INTO documents (id, ciphertext, nonce) VALUES (?, ?, ?)",
+        document.id, document.ciphertext, document.nonce
       );
 
       for (const [token, ids] of Object.entries(indexUpdates)) {
@@ -63,7 +63,6 @@ app.post("/api/documents", async (req, res) => {
 
     await logAuditEvent("UPLOAD", {
       documentId: document.id,
-      fileName: document.fileName,
       ciphertextLength: document.ciphertext.length,
       tokensUpdated: Object.keys(indexUpdates).length,
     });
@@ -78,7 +77,7 @@ app.post("/api/documents", async (req, res) => {
 app.get("/api/documents", async (req, res) => {
   try {
     const db = await getDb();
-    const docs = await db.all("SELECT id, fileName, createdAt FROM documents");
+    const docs = await db.all("SELECT id, createdAt FROM documents");
     res.json(docs);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -136,15 +135,32 @@ app.post("/api/search", async (req, res) => {
       results[token] = ids.sort();
     }
 
+    let finalIds: string[] = [];
+    if (tokens.length > 0) {
+      if (operator === "AND" || operator === "EXACT") {
+        finalIds = results[tokens[0]];
+        for (let i = 1; i < tokens.length; i++) {
+          finalIds = finalIds.filter(id => results[tokens[i]].includes(id));
+        }
+      } else if (operator === "OR") {
+        const all = new Set<string>();
+        for (const token of tokens) {
+          results[token].forEach(id => all.add(id));
+        }
+        finalIds = Array.from(all).sort();
+      }
+    }
+
     const durationMs = Date.now() - start;
 
     await logAuditEvent("SEARCH", {
       tokensQueried: tokens.length,
+      operator,
       resultsCount: Object.values(results).flat().length,
       durationMs,
     });
 
-    res.json({ results, durationMs });
+    res.json({ results, finalIds, durationMs });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

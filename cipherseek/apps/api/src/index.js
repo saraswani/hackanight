@@ -39,7 +39,7 @@ app.post("/api/documents", async (req, res) => {
         const db = await (0, database_1.getDb)();
         await db.run("BEGIN TRANSACTION");
         try {
-            await db.run("INSERT INTO documents (id, ciphertext, nonce, fileName) VALUES (?, ?, ?, ?)", document.id, document.ciphertext, document.nonce, document.fileName);
+            await db.run("INSERT INTO documents (id, ciphertext, nonce) VALUES (?, ?, ?)", document.id, document.ciphertext, document.nonce);
             for (const [token, ids] of Object.entries(indexUpdates)) {
                 const existing = await db.get("SELECT document_ids FROM index_tokens WHERE token = ?", token);
                 let newIds = new Set(ids);
@@ -60,7 +60,6 @@ app.post("/api/documents", async (req, res) => {
         }
         await (0, database_1.logAuditEvent)("UPLOAD", {
             documentId: document.id,
-            fileName: document.fileName,
             ciphertextLength: document.ciphertext.length,
             tokensUpdated: Object.keys(indexUpdates).length,
         });
@@ -74,7 +73,7 @@ app.post("/api/documents", async (req, res) => {
 app.get("/api/documents", async (req, res) => {
     try {
         const db = await (0, database_1.getDb)();
-        const docs = await db.all("SELECT id, fileName, createdAt FROM documents");
+        const docs = await db.all("SELECT id, createdAt FROM documents");
         res.json(docs);
     }
     catch (err) {
@@ -128,13 +127,30 @@ app.post("/api/search", async (req, res) => {
             }
             results[token] = ids.sort();
         }
+        let finalIds = [];
+        if (tokens.length > 0) {
+            if (operator === "AND" || operator === "EXACT") {
+                finalIds = results[tokens[0]];
+                for (let i = 1; i < tokens.length; i++) {
+                    finalIds = finalIds.filter(id => results[tokens[i]].includes(id));
+                }
+            }
+            else if (operator === "OR") {
+                const all = new Set();
+                for (const token of tokens) {
+                    results[token].forEach(id => all.add(id));
+                }
+                finalIds = Array.from(all).sort();
+            }
+        }
         const durationMs = Date.now() - start;
         await (0, database_1.logAuditEvent)("SEARCH", {
             tokensQueried: tokens.length,
+            operator,
             resultsCount: Object.values(results).flat().length,
             durationMs,
         });
-        res.json({ results, durationMs });
+        res.json({ results, finalIds, durationMs });
     }
     catch (err) {
         res.status(400).json({ error: err.message });

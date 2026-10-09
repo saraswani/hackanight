@@ -5,7 +5,7 @@ import { useCrypto } from "../hooks/useCrypto";
 import { encryptDocument, decryptDocument, computeSearchToken, computePostingListCommitment } from "../crypto";
 import { tokenizeText } from "../search";
 import { saveTrustedCommitment, getTrustedCommitment } from "../verification";
-import { Upload, Search, File, ShieldCheck, Loader2, Download, AlertCircle, Key, FileText } from "lucide-react";
+import { Upload, Search, File, ShieldCheck, Loader2, Download, AlertCircle, Key, FileText, Bug } from "lucide-react";
 
 export function SimpleDashboard() {
   const { documentKey, searchKey, isInitialized, initializeKeys } = useCrypto();
@@ -24,10 +24,29 @@ export function SimpleDashboard() {
     setAuditLogs(prev => [{ time: new Date().toLocaleTimeString(), action, details, hash }, ...prev].slice(0, 10));
   };
 
+  const [serverAuditLogs, setServerAuditLogs] = useState<any[]>([]);
+  const [attackActive, setAttackActive] = useState(false);
+
+  const fetchServerLogs = async () => {
+    try {
+      const res = await fetch("http://localhost:3001/api/audit");
+      if (res.ok) {
+        setServerAuditLogs(await res.json());
+      }
+    } catch (e) {}
+  };
+
   const { data: documents, isLoading } = useQuery({
     queryKey: ["documents"],
     queryFn: getDocumentList,
   });
+
+  // Automatically fetch server logs periodically to show the dual-perspective
+  useEffect(() => {
+    const interval = setInterval(fetchServerLogs, 2000);
+    fetchServerLogs();
+    return () => clearInterval(interval);
+  }, []);
 
   // Automatically initialize keys if not initialized (for simplicity)
   useEffect(() => {
@@ -96,16 +115,18 @@ export function SimpleDashboard() {
           const encrypted = await encryptDocument(documentKey, fileData);
           addLog("AES-256-GCM Encryption", `File content encrypted locally before upload`, encrypted.ciphertext.substring(0, 40) + "...");
 
-          // 4. Upload
+          // 4. Upload (Without filename to protect privacy)
           await uploadDocumentAndIndex({
             document: {
               id: docId,
               ciphertext: encrypted.ciphertext,
               nonce: encrypted.nonce,
-              fileName: file.name,
             },
             indexUpdates,
           });
+
+          // Save filename locally to prove the server never needs it
+          localStorage.setItem(`cipherseek_filename_${docId}`, file.name);
 
           queryClient.invalidateQueries({ queryKey: ["documents"] });
         } catch (err: any) {
@@ -131,10 +152,11 @@ export function SimpleDashboard() {
       const fullDoc = await getDocument(doc.id);
       const fileDataUrl = await decryptDocument(documentKey, fullDoc.ciphertext, fullDoc.nonce);
       
-      // Trigger download
+      // Trigger download using the locally known filename
       const a = document.createElement("a");
       a.href = fileDataUrl;
-      a.download = doc.fileName;
+      const localName = localStorage.getItem(`cipherseek_filename_${doc.id}`) || "Encrypted_Document";
+      a.download = localName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -154,7 +176,7 @@ export function SimpleDashboard() {
 
     setIsSearching(true);
     try {
-      const tokens = tokenizeText(searchQuery);
+      const tokens = tokenizeText(searchQuery, true);
       if (tokens.length === 0) {
         setSearchResults(new Set());
         return;
@@ -168,10 +190,8 @@ export function SimpleDashboard() {
       const res = await performSearch({ tokens: hmacTokens, operator: "AND" });
       addLog("Server Response", `Server returned matching opaque IDs without seeing the keyword`, Object.values(res.results).flat().join(", ").substring(0, 40) + "...");
       
-      // Verify
+      // Verify individual posting lists
       let isValid = true;
-      let finalIds: string[] | null = null;
-
       for (const token of hmacTokens) {
         const ids = res.results[token] || [];
         const expectedCommitment = getTrustedCommitment(token);
@@ -180,23 +200,50 @@ export function SimpleDashboard() {
         if (expectedCommitment && expectedCommitment !== actualCommitment) {
           isValid = false;
         }
+      }
 
-        if (finalIds === null) {
-          finalIds = ids;
-        } else {
-          finalIds = finalIds.filter(id => ids.includes(id));
+      // Verify boolean intersection
+      let expectedFinalIds: string[] = [];
+      if (hmacTokens.length > 0) {
+        expectedFinalIds = res.results[hmacTokens[0]] || [];
+        for (let i = 1; i < hmacTokens.length; i++) {
+          expectedFinalIds = expectedFinalIds.filter(id => (res.results[hmacTokens[i]] || []).includes(id));
         }
+      }
+      
+      if (JSON.stringify(expectedFinalIds.sort()) !== JSON.stringify((res.finalIds || []).sort())) {
+        isValid = false;
       }
 
       if (!isValid) {
-        alert("CRITICAL WARNING: Search results verification failed! The server has tampered with the index.");
+        alert("CRITICAL WARNING: Search results verification failed! The server has tampered with the index or omitted results.");
       }
 
-      setSearchResults(new Set(finalIds || []));
+      setSearchResults(new Set(res.finalIds || []));
     } catch (e: any) {
       alert("Search failed: " + e.message);
     } finally {
       setIsSearching(false);
+    }
+  };
+
+  const handleAttackToggle = async () => {
+    try {
+      if (attackActive) {
+        await fetch("http://localhost:3001/api/demo/reset", { method: "POST" });
+        setAttackActive(false);
+        addLog("Attack Simulator", "Server reset to honest behavior.");
+      } else {
+        await fetch("http://localhost:3001/api/demo/attack", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attackType: "OMIT_RESULT" })
+        });
+        setAttackActive(true);
+        addLog("Attack Simulator", "Server compromised. It will maliciously omit results in the next search.");
+      }
+    } catch (e: any) {
+      alert("Failed to toggle attack: " + e.message);
     }
   };
 
@@ -331,7 +378,7 @@ export function SimpleDashboard() {
                     <File className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">{doc.fileName}</p>
+                    <p className="font-medium text-foreground">{localStorage.getItem(`cipherseek_filename_${doc.id}`) || "Encrypted Document"}</p>
                     <p className="text-xs text-muted-foreground font-mono mt-0.5">ID: {doc.id.split("-")[0]}...</p>
                   </div>
                 </div>
@@ -358,35 +405,73 @@ export function SimpleDashboard() {
         )}
       </div>
 
-      {/* Audit Log for Judges */}
+      {/* Dual Perspective Audit Log for Judges */}
       <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden mt-8">
-        <div className="p-6 border-b border-border">
-          <h2 className="text-lg font-semibold flex items-center">
-            <ShieldCheck className="w-5 h-5 mr-2 text-primary" />
-            Live Cryptography Audit (For Judges)
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">Watch how data is scrambled locally before it ever hits the server.</p>
+        <div className="p-6 border-b border-border flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold flex items-center">
+              <ShieldCheck className="w-5 h-5 mr-2 text-primary" />
+              Dual-Perspective Cryptography Audit
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">Proof that the server only sees opaque hashes and ciphertext.</p>
+          </div>
+          
+          <button
+            onClick={handleAttackToggle}
+            className={`px-4 py-2 rounded-md text-sm font-bold transition-colors flex items-center ${
+              attackActive 
+                ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 animate-pulse" 
+                : "bg-muted text-foreground hover:bg-muted/80"
+            }`}
+          >
+            <Bug className="w-4 h-4 mr-2" />
+            {attackActive ? "Disable Malicious Server" : "Simulate Malicious Server"}
+          </button>
         </div>
-        <div className="p-6 bg-black/5 dark:bg-black/40 font-mono text-xs md:text-sm overflow-x-auto max-h-64 overflow-y-auto">
-          {auditLogs.length === 0 ? (
-            <p className="text-muted-foreground italic">No cryptographic actions recorded yet. Upload or search a file to see the encryption engine in real-time.</p>
-          ) : (
-            <ul className="space-y-3">
-              {auditLogs.map((log, i) => (
-                <li key={i} className="flex flex-col md:flex-row md:items-start gap-2 border-b border-border/50 pb-2 last:border-0">
-                  <span className="text-primary font-bold min-w-[80px]">{log.time}</span>
-                  <div className="flex-1">
-                    <strong className="text-foreground">{log.action}:</strong> <span className="text-muted-foreground">{log.details}</span>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border">
+          {/* Client Perspective */}
+          <div className="p-6 bg-black/5 dark:bg-black/40 font-mono text-xs md:text-sm overflow-x-auto max-h-80 overflow-y-auto">
+            <h3 className="text-primary font-bold mb-4 border-b border-primary/20 pb-2">Client Perspective (What you know)</h3>
+            {auditLogs.length === 0 ? (
+              <p className="text-muted-foreground italic">No local actions recorded yet.</p>
+            ) : (
+              <ul className="space-y-4">
+                {auditLogs.map((log, i) => (
+                  <li key={i} className="flex flex-col gap-1 border-b border-border/50 pb-3 last:border-0">
+                    <span className="text-primary font-bold">{log.time}</span>
+                    <strong className="text-foreground">{log.action}</strong>
+                    <span className="text-muted-foreground">{log.details}</span>
                     {log.hash && (
-                      <div className="mt-1 p-1.5 bg-primary/10 text-primary rounded break-all">
+                      <div className="mt-1 p-2 bg-primary/10 text-primary rounded break-all">
                         {log.hash}
                       </div>
                     )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Server Perspective */}
+          <div className="p-6 bg-destructive/5 dark:bg-destructive/10 font-mono text-xs md:text-sm overflow-x-auto max-h-80 overflow-y-auto">
+            <h3 className="text-destructive font-bold mb-4 border-b border-destructive/20 pb-2">Untrusted Server Audit Log (What it sees)</h3>
+            {serverAuditLogs.length === 0 ? (
+              <p className="text-muted-foreground italic">No server actions recorded yet.</p>
+            ) : (
+              <ul className="space-y-4">
+                {serverAuditLogs.map((log: any) => (
+                  <li key={log.id} className="flex flex-col gap-1 border-b border-border/50 pb-3 last:border-0">
+                    <span className="text-destructive font-bold">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    <strong className="text-foreground">{log.type}</strong>
+                    <pre className="text-muted-foreground whitespace-pre-wrap mt-1 p-2 bg-black/10 dark:bg-black/40 rounded border border-border/50 text-xs">
+                      {JSON.stringify(log.details, null, 2)}
+                    </pre>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
     </div>
