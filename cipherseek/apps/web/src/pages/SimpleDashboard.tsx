@@ -19,6 +19,11 @@ export function SimpleDashboard() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
+  const [auditLogs, setAuditLogs] = useState<Array<{ time: string, action: string, details: string, hash?: string }>>([]);
+  const addLog = (action: string, details: string, hash?: string) => {
+    setAuditLogs(prev => [{ time: new Date().toLocaleTimeString(), action, details, hash }, ...prev].slice(0, 10));
+  };
+
   const { data: documents, isLoading } = useQuery({
     queryKey: ["documents"],
     queryFn: getDocumentList,
@@ -64,7 +69,12 @@ export function SimpleDashboard() {
           }
 
           const plaintextTokens = tokenizeText(textToIndex);
+          addLog("Tokenization", `Extracted ${plaintextTokens.length} unique words from file.`);
+          
           const hmacTokens = await Promise.all(plaintextTokens.map(t => computeSearchToken(searchKey, t)));
+          if (hmacTokens.length > 0) {
+            addLog("Trapdoor Generation", `First keyword hashed to blind token`, hmacTokens[0].substring(0, 32) + "...");
+          }
           
           // 2. Fetch existing index for verifiable commitments
           let existingIndex: Record<string, string[]> = {};
@@ -84,6 +94,7 @@ export function SimpleDashboard() {
 
           // 3. Encrypt the file data (Data URL)
           const encrypted = await encryptDocument(documentKey, fileData);
+          addLog("AES-256-GCM Encryption", `File content encrypted locally before upload`, encrypted.ciphertext.substring(0, 40) + "...");
 
           // 4. Upload
           await uploadDocumentAndIndex({
@@ -149,8 +160,13 @@ export function SimpleDashboard() {
         return;
       }
 
+      addLog("Search Initiated", `User typed plaintext query: "${searchQuery}"`);
+
       const hmacTokens = await Promise.all(tokens.map(t => computeSearchToken(searchKey, t)));
+      addLog("Blind Tokenization", `Plaintext converted to blind token for server`, hmacTokens[0].substring(0, 40) + "...");
+      
       const res = await performSearch({ tokens: hmacTokens, operator: "AND" });
+      addLog("Server Response", `Server returned matching opaque IDs without seeing the keyword`, Object.values(res.results).flat().join(", ").substring(0, 40) + "...");
       
       // Verify
       let isValid = true;
@@ -340,6 +356,38 @@ export function SimpleDashboard() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Audit Log for Judges */}
+      <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden mt-8">
+        <div className="p-6 border-b border-border">
+          <h2 className="text-lg font-semibold flex items-center">
+            <ShieldCheck className="w-5 h-5 mr-2 text-primary" />
+            Live Cryptography Audit (For Judges)
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">Watch how data is scrambled locally before it ever hits the server.</p>
+        </div>
+        <div className="p-6 bg-black/5 dark:bg-black/40 font-mono text-xs md:text-sm overflow-x-auto max-h-64 overflow-y-auto">
+          {auditLogs.length === 0 ? (
+            <p className="text-muted-foreground italic">No cryptographic actions recorded yet. Upload or search a file to see the encryption engine in real-time.</p>
+          ) : (
+            <ul className="space-y-3">
+              {auditLogs.map((log, i) => (
+                <li key={i} className="flex flex-col md:flex-row md:items-start gap-2 border-b border-border/50 pb-2 last:border-0">
+                  <span className="text-primary font-bold min-w-[80px]">{log.time}</span>
+                  <div className="flex-1">
+                    <strong className="text-foreground">{log.action}:</strong> <span className="text-muted-foreground">{log.details}</span>
+                    {log.hash && (
+                      <div className="mt-1 p-1.5 bg-primary/10 text-primary rounded break-all">
+                        {log.hash}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );
